@@ -66,7 +66,6 @@ def analyze_file_with_context(file_path, model, context):
         code = f.read()
 
     source_code_path = os.path.basename(file_path)
-    print(f"Analyzing: {source_code_path}")
     prompt = f"Analyze the following source code from {source_code_path}:\n\n{code}\n\n"
     start_time = time.time()
     response = askOllama(prompt, model, context)
@@ -75,6 +74,7 @@ def analyze_file_with_context(file_path, model, context):
     time_differences.append(elapsed_time)
 
     if response:
+        print("")
         print(f"Analysis for {source_code_path}:")
         print(response["text"])
         print(f"Time taken: {format_time(elapsed_time)}")
@@ -95,6 +95,9 @@ def build_context_from_directory(directory, model, state, resume):
         print(f"Starting new analysis for directory {directory}")
 
     for idx, file_path in enumerate(pending_files[:], start=1):
+        print("")
+        progress = int((idx / total_files) * 100)
+        print(f"Analyzing: {file_path} {progress}%")
         context = analyze_file_with_context(file_path, model, context)
         pending_files.remove(file_path)
         save_state(directory, pending_files, context, model)
@@ -136,7 +139,7 @@ def sourceCodeAnalysis(directory, model, extensions=None):
 
         if resume == "yes":
             saved_model = state.get("model")
-            if saved_model and saved_model != model:
+            if saved_model != model:
                 print(f"Error: The saved model '{saved_model}' does not match the current model '{model}'. Exiting.")
                 sys.exit(1)
 
