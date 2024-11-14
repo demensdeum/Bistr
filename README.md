@@ -35,7 +35,7 @@ Bistr is a tool for analyzing source code files in a directory using Ollama, an 
 To analyze Python and C++ files in the `/path/to/code` directory using a model called `code-analyzer`, run:
 
 ```bash
-python analyze.py /path/to/code --model code-analizer --extensions .py .cpp
+python analyze.py /path/to/code --model qwen2.5-coder --extensions .py .cpp
 ```
 
 ### Resuming Analysis:

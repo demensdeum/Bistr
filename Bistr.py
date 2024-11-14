@@ -4,11 +4,10 @@ import argparse
 import time
 import json
 import tempfile
+import sys
 
-# Define the path for the save state file
 SAVE_STATE_FILE = os.path.join(tempfile.gettempdir(), "source_code_analysis_state.json")
 time_differences = []
-
 
 def load_save_state(target_directory):
     """Loads the save state from the file, if it exists."""
@@ -16,22 +15,21 @@ def load_save_state(target_directory):
         print(f"Loading save state from: {SAVE_STATE_FILE}")
         with open(SAVE_STATE_FILE, 'r', encoding='utf-8') as f:
             state_data = json.load(f)
-            # Check if the target directory is in the save state
             if target_directory in state_data:
                 return state_data[target_directory]
     return None
 
-def save_state(target_directory, pending_files, context):
-    """Saves the current state to the file."""
+def save_state(target_directory, pending_files, context, model):
+    """Saves the current state to the file, including the model name."""
     state_data = {}
     if os.path.exists(SAVE_STATE_FILE):
         with open(SAVE_STATE_FILE, 'r', encoding='utf-8') as f:
             state_data = json.load(f)
 
-    # Update the state for the target directory
     state_data[target_directory] = {
         "pending_files": pending_files,
-        "context": context
+        "context": context,
+        "model": model
     }
 
     with open(SAVE_STATE_FILE, 'w', encoding='utf-8') as f:
@@ -99,14 +97,14 @@ def build_context_from_directory(directory, model, state, resume):
     for idx, file_path in enumerate(pending_files[:], start=1):
         context = analyze_file_with_context(file_path, model, context)
         pending_files.remove(file_path)
-        save_state(directory, pending_files, context)
+        save_state(directory, pending_files, context, model)
         avg_time_per_file = sum(time_differences) / len(time_differences)
         remaining_files = total_files - idx
         estimated_remaining_time = avg_time_per_file * remaining_files
         if len(time_differences) >= 4:
             print(f"Estimated time remaining: {format_time(estimated_remaining_time)}")
         else:
-            print(f"Pendging time estimation")
+            print(f"Pending time estimation")
 
     return context
 
@@ -135,12 +133,19 @@ def sourceCodeAnalysis(directory, model, extensions=None):
 
     if state:
         resume = input(f"A previous analysis state was found for {abs_directory}. Do you want to resume? (yes/no): ").strip().lower()
-        if resume != "yes":
-            state = {"pending_files": get_files_list(abs_directory, extensions), "context": []}
-    else:
-        state = {"pending_files": get_files_list(abs_directory, extensions), "context": []}
 
-    context = build_context_from_directory(abs_directory, model, state, resume)
+        if resume == "yes":
+            saved_model = state.get("model")
+            if saved_model and saved_model != model:
+                print(f"Error: The saved model '{saved_model}' does not match the current model '{model}'. Exiting.")
+                sys.exit(1)
+
+        else:
+            state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
+    else:
+        state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
+
+    context = build_context_from_directory(abs_directory, model, state, resume == "yes")
     interactive_question_answering(context, model)
 
 def get_files_list(directory, extensions):
