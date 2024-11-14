@@ -10,7 +10,6 @@ SAVE_STATE_FILE = os.path.join(tempfile.gettempdir(), "source_code_analysis_stat
 time_differences = []
 
 def load_save_state(target_directory):
-    """Loads the save state from the file, if it exists."""
     if os.path.exists(SAVE_STATE_FILE):
         print(f"Loading save state from: {SAVE_STATE_FILE}")
         with open(SAVE_STATE_FILE, 'r', encoding='utf-8') as f:
@@ -20,7 +19,6 @@ def load_save_state(target_directory):
     return None
 
 def save_state(target_directory, pending_files, context, model):
-    """Saves the current state to the file, including the model name."""
     state_data = {}
     if os.path.exists(SAVE_STATE_FILE):
         with open(SAVE_STATE_FILE, 'r', encoding='utf-8') as f:
@@ -60,7 +58,7 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{hours}h {minutes}m {seconds}s"
 
-def analyze_file_with_context(file_path, model, context):
+def analyze_file_with_context(file_path, model, context, output_dir=None):
     """Analyzes a single file and updates the context."""
     with open(file_path, 'r', encoding='utf-8') as f:
         code = f.read()
@@ -74,20 +72,62 @@ def analyze_file_with_context(file_path, model, context):
     time_differences.append(elapsed_time)
 
     if response:
-        print("")
         print(f"Analysis for {source_code_path}:")
         print(response["text"])
+        print("")
         print(f"Time taken: {format_time(elapsed_time)}")
+
+        # Generate HTML report if output_dir is specified
+        if output_dir:
+            html_file_path = os.path.join(output_dir, f"{source_code_path}.html")
+            with open(html_file_path, 'w', encoding='utf-8') as html_file:
+                html_file.write(f"""
+                <html>
+                <head>
+                    <style>
+                        body {{
+                            display: flex;
+                            justify-content: center;
+                        }}
+                        .content {{
+                            width: 80%;
+                            margin: 0 auto;
+                        }}
+                        pre {{
+                            white-space: pre-wrap;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="content">
+                        <h1>Analysis of {source_code_path}</h1>
+                        <pre>{response['text']}</pre>
+                    </div>
+                </body>
+                </html>
+                """)
+            print(f"HTML report saved to: {html_file_path}")
+
         return response["context"]
     else:
         print(f"Failed to get response for {source_code_path}")
         return context
+    
+def build_index_html(output_dir, analyzed_files):
+    index_path = os.path.join(output_dir, "index.html")
+    with open(index_path, 'w', encoding='utf-8') as index_file:
+        index_file.write("<html><body><h1>Source Code Analysis Reports</h1><ul>")
+        for file_name in analyzed_files:
+            link = f"{file_name}.html"
+            index_file.write(f'<li><a href="{link}">{file_name}</a></li>')
+        index_file.write("</ul></body></html>")
+    print(f"Index file created at: {index_path}")
 
-def build_context_from_directory(directory, model, state, resume):
-    """Builds context by analyzing each file in the specified directory with given extensions."""
+def build_context_from_directory(directory, model, state, resume, output_dir=None):
     context = state.get("context", [])
     pending_files = state.get("pending_files", [])
     total_files = len(pending_files)
+    analyzed_files = []
 
     if resume:
         print(f"Resuming analysis for {total_files} files in {directory}")
@@ -98,9 +138,10 @@ def build_context_from_directory(directory, model, state, resume):
         print("")
         progress = int((idx / total_files) * 100)
         print(f"Analyzing: {file_path} {progress}%")
-        context = analyze_file_with_context(file_path, model, context)
+        context = analyze_file_with_context(file_path, model, context, output_dir)
         pending_files.remove(file_path)
         save_state(directory, pending_files, context, model)
+        analyzed_files.append(os.path.basename(file_path))
         avg_time_per_file = sum(time_differences) / len(time_differences)
         remaining_files = total_files - idx
         estimated_remaining_time = avg_time_per_file * remaining_files
@@ -108,6 +149,9 @@ def build_context_from_directory(directory, model, state, resume):
             print(f"Estimated time remaining: {format_time(estimated_remaining_time)}")
         else:
             print(f"Pending time estimation")
+
+        if output_dir:
+            build_index_html(output_dir, analyzed_files)
 
     return context
 
@@ -125,7 +169,7 @@ def interactive_question_answering(context, model):
         else:
             print("Failed to get a response.")
 
-def sourceCodeAnalysis(directory, model, extensions=None):
+def sourceCodeAnalysis(directory, model, extensions=None, output_dir=None):
     if extensions is None:
         extensions = ['.py', '.cpp', '.h', '.java', '.js', '.html', '.css']
 
@@ -148,11 +192,10 @@ def sourceCodeAnalysis(directory, model, extensions=None):
     else:
         state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
 
-    context = build_context_from_directory(abs_directory, model, state, resume == "yes")
+    context = build_context_from_directory(abs_directory, model, state, resume == "yes", output_dir=output_dir)
     interactive_question_answering(context, model)
 
 def get_files_list(directory, extensions):
-    """Generates a list of files to be analyzed."""
     file_list = []
     for root, _, files in os.walk(directory):
         for file in files:
@@ -166,9 +209,10 @@ def main():
     parser.add_argument("--model", required=True, help="Model to use for analysis.")
     parser.add_argument("--extensions", nargs="*", default=['.py', '.cpp', '.h', '.java', '.js', '.html', '.css'],
                         help="File extensions to analyze (space-separated).")
+    parser.add_argument("--docs-output-path", help="Path to save the HTML analysis reports.")
 
     args = parser.parse_args()
-    sourceCodeAnalysis(args.directory, model=args.model, extensions=args.extensions)
+    sourceCodeAnalysis(args.directory, model=args.model, extensions=args.extensions, output_dir=args.docs_output_path)
 
 if __name__ == "__main__":
     main()
