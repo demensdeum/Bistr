@@ -8,6 +8,7 @@ import sys
 
 SAVE_STATE_FILE = os.path.join(tempfile.gettempdir(), "source_code_analysis_state.json")
 time_differences = []
+analyzed_files = []
 
 def load_save_state(target_directory):
     if os.path.exists(SAVE_STATE_FILE):
@@ -58,13 +59,75 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{hours}h {minutes}m {seconds}s"
 
-def analyze_file_with_context(file_path, model, context, output_dir=None):
+def save_summary_as_html(output_file, analyzed_files, model, research="No research"):
+    """Creates an HTML table summarizing the analysis results."""
+    with open(output_file, 'w', encoding='utf-8') as html_file:
+        html_file.write(f"""
+        <html>
+        <head>
+            <style>
+                table {{
+                    border-collapse: collapse;
+                    width: 100%;
+                    border: 1px solid black;
+                }}
+                table td {{
+                    border: 1px solid black;                    
+                }}
+                th, td {{
+                    border: 1px solid black;
+                    text-align: left;
+                    padding: 8px;
+                }}
+                th {{
+                    background-color: #f2f2f2;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>Source Code Analysis Summary</h1>
+            <p><strong>Model Used:</strong> {model}</p>
+            <p><strong>Research Query:</strong> {research}</p>
+            <table>
+                <tr>
+                    <th>File</th>
+                    <th>Relevance</th>
+                    <th>Reason</th>
+                </tr>
+        """)
+
+        for file_data in analyzed_files:
+            html_file.write(f"""
+                <tr>
+                    <td>{file_data['file']}</td>
+                    <td>{file_data['relevance']}%</td>
+                    <td>{file_data['reason']}</td>
+                </tr>
+            """)
+
+        html_file.write("""
+            </table>
+        </body>
+        </html>
+        """)
+
+def analyze_file_with_context(file_path, model, context, output_html=None, research=None):
     """Analyzes a single file and updates the context."""
     with open(file_path, 'r', encoding='utf-8') as f:
         code = f.read()
 
     source_code_path = os.path.basename(file_path)
-    prompt = f"Analyze the following source code from {source_code_path}:\n\n{code}\n\n"
+    if research:
+        jsonExample = """
+        {
+            "relevance": 0, // relevance to question of research from 0-100%
+            "reason" : "Reasoning text" // reasoning text why it's relevance to question in research, show exact related code snippets
+        }
+        """
+        researchPrompt = f"\nCan you answer this question \"{research}\"? Is it in this code? Answer in json format\n For example: {jsonExample}\n"
+    else:
+        researchPrompt = ""
+    prompt = f"Analyze the following source code from {source_code_path}:\n\n{code}\n\n{researchPrompt}"
     start_time = time.time()
     response = askOllama(prompt, model, context)
     elapsed_time = time.time() - start_time
@@ -72,64 +135,30 @@ def analyze_file_with_context(file_path, model, context, output_dir=None):
     time_differences.append(elapsed_time)
 
     if response:
-        print(f"Analysis for {source_code_path}:")
-        print(response["text"])
-        print("")
-        print(f"Time taken: {format_time(elapsed_time)}")
-
-        # Generate HTML report if output_dir is specified
-        if output_dir:
-            html_file_path = os.path.join(output_dir, f"{source_code_path}.html")
-            with open(html_file_path, 'w', encoding='utf-8') as html_file:
-                html_file.write(f"""
-                <html>
-                <head>
-                    <style>
-                        body {{
-                            display: flex;
-                            justify-content: center;
-                        }}
-                        .content {{
-                            width: 80%;
-                            margin: 0 auto;
-                        }}
-                        pre {{
-                            white-space: pre-wrap;
-                        }}
-                    </style>
-                </head>
-                <body>
-                    <div class="content">
-                        <h1>Analysis of {source_code_path}</h1>
-                        <pre>{response['text']}</pre>
-                    </div>
-                </body>
-                </html>
-                """)
-            print(f"HTML report saved to: {html_file_path}")
-
+        try:
+            response_data = json.loads(response["text"])
+        except:
+            return None
+        
+        analyzed_files.append({
+                "file": os.path.basename(file_path),
+                "relevance": response_data.get("relevance", 0),
+                "reason": response_data.get("reason", "No reason provided")
+            })
+        if output_html:
+            save_summary_as_html(output_html, analyzed_files, model, research)
         return response["context"]
     else:
         print(f"Failed to get response for {source_code_path}")
         return context
     
-def build_index_html(output_dir, analyzed_files):
-    index_path = os.path.join(output_dir, "index.html")
-    with open(index_path, 'w', encoding='utf-8') as index_file:
-        index_file.write("<html><body><h1>Source Code Analysis Reports</h1><ul>")
-        for file_name in analyzed_files:
-            link = f"{file_name}.html"
-            index_file.write(f'<li><a href="{link}">{file_name}</a></li>')
-        index_file.write("</ul></body></html>")
-    print(f"Index file created at: {index_path}")
-
-def build_context_from_directory(directory, model, state, resume, output_dir=None):
+def build_context_from_directory(directory, model, state, is_resume, output_html=None, research=None):
     context = state.get("context", [])
     pending_files = state.get("pending_files", [])
     total_files = len(pending_files)
     analyzed_files = []
 
-    if resume:
+    if is_resume:
         print(f"Resuming analysis for {total_files} files in {directory}")
     else:
         print(f"Starting new analysis for directory {directory}")
@@ -138,7 +167,9 @@ def build_context_from_directory(directory, model, state, resume, output_dir=Non
         print("")
         progress = int((idx / total_files) * 100)
         print(f"Analyzing: {file_path} {progress}%")
-        context = analyze_file_with_context(file_path, model, context, output_dir)
+        result = None
+        while result == None:
+            result = analyze_file_with_context(file_path, model, context, output_html, research)
         pending_files.remove(file_path)
         save_state(directory, pending_files, context, model)
         analyzed_files.append(os.path.basename(file_path))
@@ -149,9 +180,6 @@ def build_context_from_directory(directory, model, state, resume, output_dir=Non
             print(f"Estimated time remaining: {format_time(estimated_remaining_time)}")
         else:
             print(f"Pending time estimation")
-
-        if output_dir:
-            build_index_html(output_dir, analyzed_files)
 
     return context
 
@@ -169,30 +197,35 @@ def interactive_question_answering(context, model):
         else:
             print("Failed to get a response.")
 
-def sourceCodeAnalysis(directory, model, extensions=None, output_dir=None):
+def sourceCodeAnalysis(directory, model, extensions=None, output_html=None, research=None):
     if extensions is None:
         extensions = ['.py', '.cpp', '.h', '.java', '.js', '.html', '.css']
 
     abs_directory = os.path.abspath(directory)
     state = load_save_state(abs_directory)
 
-    resume = False
+    should_resume = False
 
-    if state:
-        resume = input(f"A previous analysis state was found for {abs_directory}. Do you want to resume? (yes/no): ").strip().lower()
+    while True:
+        if state:
+            should_resume = input(f"A previous analysis state was found for {abs_directory}. Do you want to resume? (Y/n): ").strip().lower()
 
-        if resume == "yes":
-            saved_model = state.get("model")
-            if saved_model != model:
-                print(f"Error: The saved model '{saved_model}' does not match the current model '{model}'. Exiting.")
-                sys.exit(1)
+            if should_resume == "y":
+                saved_model = state.get("model")
+                if saved_model != model:
+                    print(f"Error: The saved model '{saved_model}' does not match the current model '{model}'. Exiting.")
+                    sys.exit(1)
+                break
 
-        else:
-            state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
-    else:
-        state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
+            elif should_resume == "n":
+                state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
+                break
 
-    context = build_context_from_directory(abs_directory, model, state, resume == "yes", output_dir=output_dir)
+            elif len(should_resume) < 1:
+                should_resume = "y"
+                break
+
+    context = build_context_from_directory(abs_directory, model, state, should_resume == "y", output_html=output_html, research=research)
     interactive_question_answering(context, model)
 
 def get_files_list(directory, extensions):
@@ -209,10 +242,11 @@ def main():
     parser.add_argument("--model", required=True, help="Model to use for analysis.")
     parser.add_argument("--extensions", nargs="*", default=['.py', '.cpp', '.h', '.java', '.js', '.html', '.css'],
                         help="File extensions to analyze (space-separated).")
-    parser.add_argument("--docs-output-path", help="Path to save the HTML analysis reports.")
+    parser.add_argument("--output-html", required=True, help="Path to save the HTML summary.")
+    parser.add_argument("--research", help="Search for one particular answer in codebase, then stop")
 
     args = parser.parse_args()
-    sourceCodeAnalysis(args.directory, model=args.model, extensions=args.extensions, output_dir=args.docs_output_path)
+    sourceCodeAnalysis(args.directory, model=args.model, extensions=args.extensions, output_html=args.output_html, research=args.research)
 
 if __name__ == "__main__":
     main()
