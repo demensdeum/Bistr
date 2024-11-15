@@ -61,6 +61,9 @@ def format_time(seconds):
 
 def save_summary_as_html(output_file, analyzed_files, model, research="No research"):
     """Creates an HTML table summarizing the analysis results."""
+    # Sort the analyzed files by relevance in descending order
+    sorted_files = sorted(analyzed_files, key=lambda x: x['relevance'], reverse=True)
+    
     with open(output_file, 'w', encoding='utf-8') as html_file:
         html_file.write(f"""
         <html>
@@ -96,7 +99,7 @@ def save_summary_as_html(output_file, analyzed_files, model, research="No resear
                 </tr>
         """)
 
-        for file_data in analyzed_files:
+        for file_data in sorted_files:
             html_file.write(f"""
                 <tr>
                     <td>{file_data['file']}</td>
