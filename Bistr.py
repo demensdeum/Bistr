@@ -227,6 +227,9 @@ def sourceCodeAnalysis(directory, model, extensions=None, output_html=None, rese
             elif len(should_resume) < 1:
                 should_resume = "y"
                 break
+        else:
+            state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
+            break
 
     context = build_context_from_directory(abs_directory, model, state, should_resume == "y", output_html=output_html, research=research)
     interactive_question_answering(context, model)
