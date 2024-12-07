@@ -29,13 +29,16 @@ Bistr is a tool for analyzing source code files in a directory using Ollama, an 
 - `directory`: Path to the directory containing the source code to analyze.
 - `--model`: Model to use for analisis (required).
 - `--extensions`: Space-separated list of file extensions to analyze (optional, default: `.py .cpp .h .java .js .html .css`).
+- `--output-html`: Path to save the HTML summary.
+- `--research`: Search for one particular answer in codebase
+
 
 ### Example:
 
 To analyze Python and C++ files in the `/path/to/code` directory using a model called `code-analyzer`, run:
 
 ```bash
-python analyze.py /path/to/code --model qwen2.5-coder --extensions .py .cpp
+python bistr.py /path/to/code --model llama3.1:latest --output-html result.html --research "What is the purpose of this function?"
 ```
 
 ### Resuming Analysis:
