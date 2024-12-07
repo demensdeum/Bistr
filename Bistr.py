@@ -43,11 +43,28 @@ def askOllama(prompt, model, context):
         "model": model,
         "stream": False,
         "prompt": prompt.strip(),
-        "context": context
+        "context": context,
+        "format": {
+            "type": "object",
+            "properties": {
+                "relevance": {
+                    "type": "number"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "relevance",
+                "reason"
+            ]
+        }
     }
     response = requests.post(base_url + endpoint, json=payload)
     if response.status_code == 200:
         answer = response.json()
+        #print(answer)
+        print(answer.get("response"))
         return {"text": answer.get("response"), "context": answer.get("context")}
     else:
         print(f"ollama error: {response}; {response.content}")
@@ -59,7 +76,7 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{hours}h {minutes}m {seconds}s"
 
-def save_summary_as_html(output_file, analyzed_files, model, research="No research"):
+def save_summary_as_html(output_file, analyzed_files, model, research, directory):
     """Creates an HTML table summarizing the analysis results."""
     # Sort the analyzed files by relevance in descending order
     sorted_files = sorted(analyzed_files, key=lambda x: x['relevance'], reverse=True)
@@ -89,6 +106,7 @@ def save_summary_as_html(output_file, analyzed_files, model, research="No resear
         </head>
         <body>
             <h1>Source Code Analysis Summary</h1>
+            <p><strong>Project Path:</strong> {directory}</p>
             <p><strong>Model Used:</strong> {model}</p>
             <p><strong>Research Query:</strong> {research}</p>
             <table>
@@ -114,9 +132,9 @@ def save_summary_as_html(output_file, analyzed_files, model, research="No resear
         </html>
         """)
 
-def analyze_file_with_context(file_path, model, context, output_html=None, research=None):
+def analyze_file_with_context(file_path, model, context, output_html, research, directory):
     """Analyzes a single file and updates the context."""
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
         code = f.read()
 
     source_code_path = os.path.basename(file_path)
@@ -132,7 +150,10 @@ def analyze_file_with_context(file_path, model, context, output_html=None, resea
         researchPrompt = ""
     prompt = f"Analyze the following source code from {source_code_path}:\n\n{code}\n\n{researchPrompt}"
     start_time = time.time()
+    print("ollama request ->")
     response = askOllama(prompt, model, context)
+    print(response)
+    print("ollama response <-")
     elapsed_time = time.time() - start_time
 
     time_differences.append(elapsed_time)
@@ -141,6 +162,7 @@ def analyze_file_with_context(file_path, model, context, output_html=None, resea
         try:
             response_data = json.loads(response["text"])
         except:
+            print("Broken ollama model response, no \"text\" key in json response.")
             return None
         
         analyzed_files.append({
@@ -149,13 +171,13 @@ def analyze_file_with_context(file_path, model, context, output_html=None, resea
                 "reason": response_data.get("reason", "No reason provided")
             })
         if output_html:
-            save_summary_as_html(output_html, analyzed_files, model, research)
+            save_summary_as_html(output_html, analyzed_files, model, research, directory)
         return response["context"]
     else:
         print(f"Failed to get response for {source_code_path}")
         return context
     
-def build_context_from_directory(directory, model, state, is_resume, output_html=None, research=None):
+def analyze_directory(directory, model, state, is_resume, output_html, research):
     context = state.get("context", [])
     pending_files = state.get("pending_files", [])
     total_files = len(pending_files)
@@ -169,10 +191,10 @@ def build_context_from_directory(directory, model, state, is_resume, output_html
     for idx, file_path in enumerate(pending_files[:], start=1):
         print("")
         progress = int((idx / total_files) * 100)
-        print(f"Analyzing: {file_path} {progress}%")
+        print(f"Analyzing: {file_path} | Total progress: {progress}%")
         result = None
         while result == None:
-            result = analyze_file_with_context(file_path, model, context, output_html, research)
+            result = analyze_file_with_context(file_path, model, context, output_html, research, directory)
         pending_files.remove(file_path)
         save_state(directory, pending_files, context, model)
         analyzed_files.append(os.path.basename(file_path))
@@ -184,26 +206,7 @@ def build_context_from_directory(directory, model, state, is_resume, output_html
         else:
             print(f"Pending time estimation")
 
-    return context
-
-def interactive_question_answering(context, model):
-    print("You can ask questions about the codebase. Type 'bye' to finish.")
-    while True:
-        question = input("Enter your question (or 'bye' to finish): ")
-        if question.lower() == 'bye':
-            break
-        response = askOllama(question, model, context)
-        if response:
-            print("Response:")
-            print(response["text"])
-            context = response["context"]
-        else:
-            print("Failed to get a response.")
-
-def sourceCodeAnalysis(directory, model, extensions=None, output_html=None, research=None):
-    if extensions is None:
-        extensions = ['.py', '.cpp', '.h', '.java', '.js', '.html', '.css']
-
+def sourceCodeAnalysis(directory, model, extensions, output_html, research):
     abs_directory = os.path.abspath(directory)
     state = load_save_state(abs_directory)
 
@@ -231,8 +234,7 @@ def sourceCodeAnalysis(directory, model, extensions=None, output_html=None, rese
             state = {"pending_files": get_files_list(abs_directory, extensions), "context": [], "model": model}
             break
 
-    context = build_context_from_directory(abs_directory, model, state, should_resume == "y", output_html=output_html, research=research)
-    interactive_question_answering(context, model)
+    analyze_directory(abs_directory, model, state, should_resume == "y", output_html=output_html, research=research)
 
 def get_files_list(directory, extensions):
     file_list = []
@@ -246,13 +248,15 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze source code and interact with Ollama.")
     parser.add_argument("directory", help="Path to the source code directory to analyze.")
     parser.add_argument("--model", required=True, help="Model to use for analysis.")
-    parser.add_argument("--extensions", nargs="*", default=['.py', '.cpp', '.h', '.java', '.js', '.html', '.css'],
+    parser.add_argument("--extensions", nargs="*", default=['py', 'c', 'cpp', 'h', 'java', 'js', 'html', 'css'],
                         help="File extensions to analyze (space-separated).")
     parser.add_argument("--output-html", required=True, help="Path to save the HTML summary.")
-    parser.add_argument("--research", help="Search for one particular answer in codebase, then stop")
+    parser.add_argument("--research", required=True, help="Search for one particular answer in codebase")
 
     args = parser.parse_args()
-    sourceCodeAnalysis(args.directory, model=args.model, extensions=args.extensions, output_html=args.output_html, research=args.research)
+    extensions = [f".{ext}" for ext in args.extensions]
+
+    sourceCodeAnalysis(args.directory, model=args.model, extensions=extensions, output_html=args.output_html, research=args.research)
 
 if __name__ == "__main__":
     main()
