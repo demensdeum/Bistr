@@ -3,14 +3,13 @@
 
 Bistr is a tool for analyzing source code files in a directory using Ollama, an AI model that interprets and analyzes code. The script recursively processes the files in a given directory, based on their extensions, and uses Ollama for code analysis. It also supports state-saving, allowing you to resume analysis from where you left off.
 
-![Logo](bistr-logo.jpeg)
+![Logo](logo.png)
 
 ## Features
 
 - **Source Code Analysis:** Analyzes code files in a specified jrectory using Ollama.
 - **Context Management:** Tracks the context of previous analyses to improve the quality of responses.
 - **State Persistence:** Saves progress, enabling you to resume analysis from the last point.
-- **Interactive QA:** Allows you to ask questions about the analyzed codebase.
 - **Customizable Extensions:** Specify which file types (extensions) to analyze.
 
 ## Requirements
