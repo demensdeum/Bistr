@@ -45,8 +45,4 @@ python bistr.py /path/to/code --model llama3.1:latest --output-html result.html 
 
 ### Resuming Analysis:
 
-If a previous analysis state exists for the directory, you will be prompted whether to resume the analysis. If you choose "no," the analysis will restart from the beginning.
-
-### Interactive QA
-
-After completing the analysis, you can ask questions about the codebase. Type bye to exit the interactive session.
+If a previous analysis state exists for the directory, you will be prompted whether to resume the analysis. If you choose "n" the analysis will restart from the beginning.
